@@ -119,9 +119,9 @@ impl PauseClock {
 
     /// Record that the global stream clock has been paused.
     ///
-    /// Only the registered stream contract may call this.  The call is a no-op
-    /// if the clock is already paused (idempotent, no error) so that an
-    /// in-flight retry after a ledger timeout does not revert.
+    /// Only the registered stream contract may call this. A call while the
+    /// clock is already paused returns [`Error::AlreadyPaused`] and changes
+    /// nothing, so a retry after a lost response cannot start a second cycle.
     ///
     /// # Errors
     ///
@@ -170,7 +170,8 @@ impl PauseClock {
         }
 
         let now = env.ledger().timestamp();
-        let paused_at = config.paused_at.unwrap_or(now);
+        // A paused clock always records its start time; a missing one is corrupt state.
+        let paused_at = config.paused_at.ok_or(Error::NotPaused)?;
         let paused_duration = now.saturating_sub(paused_at);
         config.paused_total = config
             .paused_total
@@ -273,11 +274,19 @@ impl PauseClock {
             return Err(Error::LengthMismatch);
         }
 
+        // Reject duplicate IDs before any write so a bad batch leaves no partial state.
+        for i in 0..n {
+            let id = stream_ids.get_unchecked(i);
+            for j in (i + 1)..n {
+                if stream_ids.get_unchecked(j) == id {
+                    return Err(Error::DuplicateStreamId);
+                }
+            }
+        }
+
         // Tight loop: one persistent write per stream, no additional
         // cross-contract calls.  All TTL bumps happen inside save_stream_total.
-        for i in 0..n {
-            let stream_id = stream_ids.get_unchecked(i);
-            let total = totals.get_unchecked(i);
+        for (stream_id, total) in stream_ids.iter().zip(totals.iter()) {
             storage::save_stream_total(&env, stream_id, total);
             events::stream_pause_totaled(&env, stream_id, total);
         }
@@ -500,16 +509,19 @@ impl PauseClock {
 
     /// Update the stream contract address this clock trusts.
     ///
+    /// Admin-only. The zero address and the contract itself are rejected, the
+    /// same way `set_admin` rejects them.
+    ///
     /// # Errors
     ///
-    /// * [`Error::Unauthorized`] — caller is not the current admin.
-    /// * [`Error::InvalidNewAdmin`] — `stream_contract` is the zero address or
-    ///   the contract itself; either would make every caller-gated entry point
-    ///   permanently unreachable.
-    pub fn set_stream_contract(env: Env, stream_contract: Address) -> Result<(), Error> {
-        let mut config = Self::require_admin(&env)?;
-        if storage::is_forbidden_admin(&env, &stream_contract) {
-            return Err(Error::InvalidNewAdmin);
+        /// * [`Error::Unauthorized`]
+        /// * [`Error::InvalidStreamContract`]: `stream_contract` is the zero address
+        ///   or the contract itself.
+        pub fn set_stream_contract(env: Env, stream_contract: Address) -> Result<(), Error> {
+            let mut config = Self::require_admin(&env)?;
+            if storage::is_forbidden_admin(&env, &stream_contract) {
+                return Err(Error::InvalidStreamContract);
+            }
         }
         config.stream_contract = stream_contract;
         storage::save_config(&env, &config);
@@ -524,8 +536,9 @@ impl PauseClock {
 #[cfg(test)]
 mod test {
     mod admin_rotation;
-    mod archival;
-    mod auth;
-    mod batch;
-    mod common;
+        mod archival;
+        mod auth;
+        mod batch;
+        mod common;
+        mod partition;
 }

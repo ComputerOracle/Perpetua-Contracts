@@ -25,7 +25,8 @@ use soroban_sdk::contracterror;
 /// * **Batch** — [`EmptyBatch`](Self::EmptyBatch),
 ///   [`BatchTooLarge`](Self::BatchTooLarge),
 ///   [`DuplicateStreamId`](Self::DuplicateStreamId),
-///   [`LengthMismatch`](Self::LengthMismatch)
+///   [`LengthMismatch`](Self::LengthMismatch),
+///   [`InvalidStreamContract`](Self::InvalidStreamContract)
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -68,13 +69,10 @@ pub enum Error {
     BatchTooLarge = 12,
     /// Batch contained a duplicate stream ID.
     DuplicateStreamId = 13,
-    /// The two parallel vectors passed to `batch_settle` have different
-    /// lengths. `stream_ids[i]` must have a corresponding `totals[i]` for
-    /// every index; a mismatch indicates a client-side bug.
-    ///
-    /// Previously this was returned as [`Error::Overflow`], which was
-    /// misleading to clients. The dedicated variant makes the failure
-    /// unambiguous: the caller passed mismatched vectors, not an arithmetic
-    /// overflow inside the contract.
+    // --- Configuration / batch ---
+    /// The stream contract address is the zero address or the contract itself;
+    /// installing either would route every stream-only call to an unusable caller.
+    InvalidStreamContract = 15,
+    /// The two parallel vectors passed to `batch_settle` have different lengths.
     LengthMismatch = 14,
 }

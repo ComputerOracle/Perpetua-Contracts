@@ -102,50 +102,29 @@ fn set_stream_contract_accepts_admin() {
 }
 
 // ---------------------------------------------------------------------------
-// set_stream_contract address validation (issue #398)
+// set_stream_contract address validation (#394/#398)
 // ---------------------------------------------------------------------------
 
-/// Setting the stream contract to the zero address must be rejected with
-/// `InvalidNewAdmin`. Accepting it would make every stream-contract-gated
-/// entry point permanently unreachable.
 #[test]
-fn set_stream_contract_rejects_zero_address() {
-    use crate::Error;
-    let h = Harness::new();
-    let zero = soroban_sdk::Address::from_string(
-        &h.env,
-        &soroban_sdk::String::from_str(
-            &h.env,
-            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-        ),
-    );
-    let err = h
-        .client
-        .try_set_stream_contract(&zero)
-        .unwrap_err()
-        .unwrap();
-    assert_eq!(
-        err,
-        Error::InvalidNewAdmin,
-        "zero address must be rejected as stream contract"
-    );
-}
-
-/// Setting the stream contract to the pause-clock contract itself must be
-/// rejected with `InvalidNewAdmin`. Self-referential routing would cause every
-/// stream-contract-gated call to loop back and immediately fail.
-#[test]
-fn set_stream_contract_rejects_contract_itself() {
-    use crate::Error;
+fn set_stream_contract_rejects_the_contract_itself() {
     let h = Harness::new();
     let err = h
         .client
         .try_set_stream_contract(&h.contract_id)
         .unwrap_err()
         .unwrap();
-    assert_eq!(
-        err,
-        Error::InvalidNewAdmin,
-        "contract's own address must be rejected as stream contract"
-    );
+    assert_eq!(err, crate::Error::InvalidStreamContract);
+}
+
+#[test]
+fn set_stream_contract_rejects_zero_address() {
+    use soroban_sdk::String;
+    let h = Harness::new();
+    let zero = soroban_sdk::Address::from_string(&String::from_str(
+        &h.env,
+        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    ));
+    let err = h.client.try_set_stream_contract(&zero).unwrap_err().unwrap();
+    assert_eq!(err, crate::Error::InvalidStreamContract);
+}
 }
